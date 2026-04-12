@@ -12,6 +12,11 @@ toolchain grows.
 
 ## Base container
 
+This section is only necessary if you don't like my existing base
+container at: ghcr.io/dylanjude/ctc-base:latest . If you're fine with
+it, skip to the "apptainer pull ..." command at the end of this
+section.
+
 Both building and running are based on
 `nvidia/cuda:12.8.1-devel-rockylinux9`.  Building requires a few extra
 system packages, so a builder image is needed. This needs to be a
