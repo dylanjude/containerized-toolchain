@@ -1,0 +1,39 @@
+packages:
+  all:
+    # require:
+    #   - "%gcc@11.5.0"  
+    target: [x86_64]
+    permissions:
+      read: world
+      write: user
+  mpi:
+    require: 'hpcx-wrap'
+  cuda:
+    externals:
+    - spec: cuda@12.8.1
+      prefix: /usr/local/cuda-12.8
+    buildable: false
+  python:
+    externals:
+    - spec: python@3.9.21  # Rocky 9 default is usually 3.9.x
+      prefix: /usr
+    buildable: false    
+  openssl:
+    externals:
+    - spec: openssl@3.0.7
+      prefix: /usr
+    buildable: false
+  zlib:
+    externals:
+    - spec: zlib@1.2.11
+      prefix: /usr
+    buildable: false
+  # now the stuff to install
+  hpcx-wrap:
+    require: '@99.99'
+  cmake:
+    require: '@3.26.6'
+  py-numpy:
+    require: '@2.0.2'
+  occa:
+    require: '@2.0.0'
