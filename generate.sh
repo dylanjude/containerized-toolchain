@@ -37,11 +37,22 @@ if [ "$help" -eq 1 ]; then
     exit
 fi
 
-container=$(realpath "$container")
-# if [ ! -f "$container" ];then
-#     echo "Could not find that container file. Use container creation script."
-#     exit 1;
-# fi
+if [[ "$container" == *.sif ]]; then
+    container=$(realpath "$container")
+    if [ ! -f "$container" ]; then
+        echo "Container file not found: $container"
+        exit 1
+    fi
+else
+    if ! podman image exists "$container"; then
+        echo "Podman image not found locally: $container"
+        echo "Try: podman pull $container"
+        echo ""
+        echo "Available local images:"
+        podman image list --format "  {{.Repository}}:{{.Tag}}"
+        exit 1
+    fi
+fi
 
 echo "Inputs:"
 echo "  --container         $container"
@@ -126,6 +137,7 @@ echo $command > generate_cmd.txt
 cp -r ${projdir}/config .spack
 cp -r ${projdir}/custom_repo .
 cp ${projdir}/scripts/* .
+chmod +x *.sh
 
 if [[ -z "${container}" ]]; then
     echo "Container is not set, using current dir instead of container loc"
@@ -135,21 +147,63 @@ else
     sed -i "s@CTC_SETUP_DIR@/tc@g" .spack/repos.yaml
     sed -i "s@CTC_SETUP_DIR@/tc@g" .spack/modules.yaml
 
-    # When hpcx is a local path the symlink in the tc dir points to an absolute
-    # host path that won't resolve inside the container, so bind it explicitly.
-    if [[ "$hpcx" =~ ^https?:// ]]; then
-        hpcx_bind=""
+    if [[ "$container" == *.sif ]]; then
+        # Apptainer/Singularity container
+        # When hpcx is a local path the symlink in the tc dir points to an absolute
+        # host path that won't resolve inside the container, so bind it explicitly.
+        if [[ "$hpcx" =~ ^https?:// ]]; then
+            hpcx_bind=""
+        else
+            hpcx_bind="--bind ${hpcx}:/tc/hpcx "
+        fi
+
+        install_cmd="apptainer exec ${hpcx_bind}--bind $PWD:/tc ${container} bash -c \"cd /tc && ./install.sh\""
+        push_cmd="apptainer exec --env GITHUB_USER=\$GITHUB_USER --env GHCR_TOKEN=\$GHCR_TOKEN --bind $PWD:/tc ${container} bash -c \"cd /tc && ./push.sh\""
+        shell_cmd="apptainer shell ${hpcx_bind}--bind $PWD:/tc ${container}"
     else
-        hpcx_bind="--bind ${hpcx}:/tc/hpcx "
+        # Podman container
+        # When hpcx is a local path bind it explicitly into the container.
+        # Podman/crun can't bind-mount over a symlink whose target is a host
+        # path invisible to the container, so replace the symlink with an
+        # empty directory to serve as a mountpoint.
+        if [[ "$hpcx" =~ ^https?:// ]]; then
+            hpcx_bind=""
+        else
+            rm -f hpcx
+            mkdir hpcx
+            hpcx_bind="--volume ${hpcx}:/tc/hpcx "
+        fi
+
+        install_cmd="podman run --rm -it --security-opt label=disable ${hpcx_bind}--volume $PWD:/tc ${container} bash -c \"cd /tc && ./install.sh\""
+        push_cmd="podman run --rm -it --security-opt label=disable --env GITHUB_USER=\$GITHUB_USER --env GHCR_TOKEN=\$GHCR_TOKEN --volume $PWD:/tc ${container} bash -c \"cd /tc && ./push.sh\""
+        shell_cmd="podman run --rm -it --security-opt label=disable ${hpcx_bind}--volume $PWD:/tc ${container} bash"
     fi
 
-    echo "Run (queue) the installer in a slurm/pbs script with the command:"
+    {
+        echo ""
+        echo "# Install the toolchain:"
+        echo "$install_cmd"
+        echo ""
+        echo "# Push to the build cache:"
+        echo "$push_cmd"
+        echo ""
+        echo "# Run interactively:"
+        echo "$shell_cmd"
+    } >> generate_cmd.txt
+
+    echo "Install the toolchain:"
     echo ""
-    echo "\$ apptainer exec ${hpcx_bind}--bind $PWD:/tc ${container} bash -c \"cd /tc && ./setup_build_cache.sh\""
+    echo "\$ $install_cmd"
+    echo ""
+    echo "Push to the build cache:"
+    echo ""
+    echo "\$ $push_cmd"
     echo ""
     echo "Or run interactively with:"
     echo ""
-    echo "\$ apptainer shell ${hpcx_bind}--bind $PWD:/tc ${container}"
+    echo "\$ $shell_cmd"
+    echo ""
+    echo "(These commands are also saved in generate_cmd.txt)"
     echo ""
 fi
 
